@@ -17,9 +17,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 import routing_app.views
+import layouting_app.views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/load/testing', routing_app.views.testing),
-    path('api/priority', routing_app.views.priority_optimization)
+    path('api/priority', routing_app.views.priority_optimization),
+    path('api/layouting', layouting_app.views.layouting_boxes), 
     ]
