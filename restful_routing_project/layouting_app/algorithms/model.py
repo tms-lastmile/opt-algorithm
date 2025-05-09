@@ -103,6 +103,7 @@ class PlacementProcedure():
         self.boxes = inputs['v']
         self.box_DO_map = inputs['box_DO_map']
         self.DO_count = inputs['DO_count']
+        self.DOs_num = inputs['DOs_num']
 
         indices = list(range(len(self.boxes)))
         indices.sort(key=lambda i: (self.box_DO_map[i], solution[i]))

@@ -14,7 +14,7 @@ container_options = {
 def run_layouting_algorithm(shipment_data, selected_container="Blind Van"):
     boxes = []
     box_DO_map = []
-    sorted_DOs = sorted(shipment_data.keys(), key=lambda x: int(x.split("/")[1]))
+    sorted_DOs = sorted(shipment_data.keys(), key=lambda x: int(x.split("/")[1]), reverse=True)
 
     for idx, do in enumerate(sorted_DOs):
         for box_id, dims in shipment_data[do].items():
@@ -25,7 +25,8 @@ def run_layouting_algorithm(shipment_data, selected_container="Blind Van"):
         'v': boxes,
         'V': [container_options[selected_container]],
         'box_DO_map': box_DO_map,
-        'DO_count': len(sorted_DOs)
+        'DO_count': len(sorted_DOs),
+        'DOs_num': sorted_DOs
     }
 
     model = BRKGA(inputs, num_generations=30, num_individuals=40, num_elites=5, num_mutants=3, eliteCProb=0.7)
@@ -48,9 +49,12 @@ def run_layouting_algorithm(shipment_data, selected_container="Blind Van"):
         fitness = decoder.evaluate()
 
     output_layout = []
+    DOs_list = inputs['DOs_num']
     for i, box_data in enumerate(decoder.Bins[0].load_items):
         min_corner, max_corner, do_index = box_data
+        do_num = DOs_list[do_index]
         output_layout.append({
+            "do_num": do_num,
             "box_id": i + 1,
             "do_index": int(do_index),
             "min_corner": [float(coord) for coord in min_corner],
