@@ -49,6 +49,11 @@ def get_delivery_orders__with_demand_dataframe(delivery_orders):
     return pd.DataFrame(df_delivery_orders)
 
 def get_location_dataframe(locations):
+    if isinstance(locations, dict):
+        locations = [locations]
+    elif not isinstance(locations, list):
+        raise ValueError("Expected locations to be list or dict")
+
     df_locations = {
         'loc_dest_id': [],
         'address': [],
@@ -105,6 +110,7 @@ def testing(request, format=None):
 
 @api_view(["POST"])
 def priority_optimization(request, format=None):
+    print(request.body.decode('utf-8'))
     data = json.loads(request.body.decode('utf-8'))
     trucks = data['trucks']
     dest_location = data['dest_location']
