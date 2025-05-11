@@ -110,7 +110,6 @@ def testing(request, format=None):
 
 @api_view(["POST"])
 def priority_optimization(request, format=None):
-    print(request.body.decode('utf-8'))
     data = json.loads(request.body.decode('utf-8'))
     trucks = data['trucks']
     dest_location = data['dest_location']
@@ -204,7 +203,7 @@ def priority_optimization(request, format=None):
                 total_time = 0
                 total_time_with_waiting = 0
                 total_distance = 0
-                count = 0
+                
                 for index , loc_index in enumerate(reachable_locations_index):
                     loc = filtered_origin_loc.iloc[loc_index]
                     prev_loc = filtered_origin_loc.iloc[prev_loc_index]
