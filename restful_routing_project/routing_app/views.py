@@ -185,7 +185,17 @@ def priority_optimization(request, format=None):
                 data['service_times'] = services_time
                 data['num_vehicles'] = 1
                 data['depot'] = 0
+
+                print("▶️ CALLING GOOGLE_OR WITH:")
+                print("   sample time_matrix rows:", data['time_matrix'][:3])
+                print("   time_windows          :", data['time_windows'])
+                print("   service_times         :", data['service_times'])
+                print("   num_vehicles          :", data['num_vehicles'])
+                print("   depot                 :", data['depot'])
+
                 result = google_or(data=data)       
+
+                print("✅ google_or result:", result)
                 reachable_locations_index = result['reachable']                
                 
                 print("\n")
