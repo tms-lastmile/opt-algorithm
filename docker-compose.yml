@@ -1,11 +1,11 @@
-version: '3.8'
+version: "3.9"
 
 services:
-  web:
+  django_app:
     build: .
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
-      - ./restful_routing_project:/code
+      - .:/app
     ports:
       - "8000:8000"
     env_file:

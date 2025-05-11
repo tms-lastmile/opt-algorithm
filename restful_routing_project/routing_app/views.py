@@ -106,11 +106,10 @@ def get_trucks_model_sorted(trucks):
 
 @api_view(["GET"])
 def testing(request, format=None):
-    return Response("Your app is running.....")
+    return Response("Your django app is running.....")
 
 @api_view(["POST"])
 def priority_optimization(request, format=None):
-    print(request.body.decode('utf-8'))
     data = json.loads(request.body.decode('utf-8'))
     trucks = data['trucks']
     dest_location = data['dest_location']
@@ -173,6 +172,7 @@ def priority_optimization(request, format=None):
             if truck.get_current_capacity() > 0:
                 filtered_origin_loc = pd.concat([pd.DataFrame(df_do_origin_location), filtered_loc]).drop_duplicates().reset_index(drop=True)
                 _, times = get_distance_runner(filtered_origin_loc)
+                times = [[t / 60.0 for t in row] for row in times]
                 time_windows = list(zip(
                     filtered_origin_loc['open_hour'].apply(lambda x: x.hour * 60 + x.minute),
                     filtered_origin_loc['close_hour'].apply(lambda x: x.hour * 60 + x.minute)
@@ -188,8 +188,6 @@ def priority_optimization(request, format=None):
                 data['depot'] = 0
                 result = google_or(data=data)       
                 reachable_locations_index = result['reachable']                
-                
-                print("\n")
                 actual_reachable_locations_index = []
                 actual_unreachable_locations_index = []
 
@@ -204,7 +202,7 @@ def priority_optimization(request, format=None):
                 total_time = 0
                 total_time_with_waiting = 0
                 total_distance = 0
-                count = 0
+                
                 for index , loc_index in enumerate(reachable_locations_index):
                     loc = filtered_origin_loc.iloc[loc_index]
                     prev_loc = filtered_origin_loc.iloc[prev_loc_index]
