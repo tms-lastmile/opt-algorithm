@@ -172,6 +172,7 @@ def priority_optimization(request, format=None):
             if truck.get_current_capacity() > 0:
                 filtered_origin_loc = pd.concat([pd.DataFrame(df_do_origin_location), filtered_loc]).drop_duplicates().reset_index(drop=True)
                 _, times = get_distance_runner(filtered_origin_loc)
+                times = [[t / 60.0 for t in row] for row in times]
                 time_windows = list(zip(
                     filtered_origin_loc['open_hour'].apply(lambda x: x.hour * 60 + x.minute),
                     filtered_origin_loc['close_hour'].apply(lambda x: x.hour * 60 + x.minute)
@@ -185,20 +186,8 @@ def priority_optimization(request, format=None):
                 data['service_times'] = services_time
                 data['num_vehicles'] = 1
                 data['depot'] = 0
-
-                print("▶️ CALLING GOOGLE_OR WITH:")
-                print("   sample time_matrix rows:", data['time_matrix'][:3])
-                print("   time_windows          :", data['time_windows'])
-                print("   service_times         :", data['service_times'])
-                print("   num_vehicles          :", data['num_vehicles'])
-                print("   depot                 :", data['depot'])
-
                 result = google_or(data=data)       
-
-                print("✅ google_or result:", result)
                 reachable_locations_index = result['reachable']                
-                
-                print("\n")
                 actual_reachable_locations_index = []
                 actual_unreachable_locations_index = []
 
