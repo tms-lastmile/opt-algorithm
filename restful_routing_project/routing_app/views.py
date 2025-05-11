@@ -106,7 +106,7 @@ def get_trucks_model_sorted(trucks):
 
 @api_view(["GET"])
 def testing(request, format=None):
-    return Response("Your app is running.....")
+    return Response("Your django app is running.....")
 
 @api_view(["POST"])
 def priority_optimization(request, format=None):
