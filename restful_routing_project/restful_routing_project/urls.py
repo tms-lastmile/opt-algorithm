@@ -24,4 +24,4 @@ urlpatterns = [
     path('api/load/testing', routing_app.views.testing),
     path('api/priority', routing_app.views.priority_optimization),
     path('api/layouting', layouting_app.views.layouting_boxes), 
-    ]
+]
