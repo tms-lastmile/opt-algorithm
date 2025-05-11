@@ -4,17 +4,26 @@ import numpy as np
 import random
 import copy
 import json
+import re
 from .model import PlacementProcedure, BRKGA
 
 container_options = {
-    "Blind Van": (255, 146, 130),
+    "BLIND_VAN": (255, 146, 130),
     "CDE": (350, 160, 160)
 }
 
-def run_layouting_algorithm(shipment_data, selected_container="Blind Van"):
+def run_layouting_algorithm(shipment_data, selected_container):
+    print("Running BRKGA algorithm...")
+    print(shipment_data)
+
     boxes = []
     box_DO_map = []
-    sorted_DOs = sorted(shipment_data.keys(), key=lambda x: int(x.split("/")[1]), reverse=True)
+
+    def extract_do_number(do_num):
+        match = re.search(r'\d+', do_num)
+        return int(match.group()) if match else 0
+
+    sorted_DOs = sorted(shipment_data.keys(), key=lambda x: extract_do_number(x), reverse=True)
 
     for idx, do in enumerate(sorted_DOs):
         for box_id, dims in shipment_data[do].items():

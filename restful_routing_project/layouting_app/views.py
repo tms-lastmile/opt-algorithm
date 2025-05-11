@@ -8,7 +8,7 @@ def layouting_boxes(request):
     if not shipment_data:
         return Response({"error": "shipment_data is required"}, status=400)
 
-    selected_container = request.data.get("container", "Blind Van")
+    selected_container = request.data.get("container")
 
     result = run_layouting_algorithm(shipment_data, selected_container)
 
