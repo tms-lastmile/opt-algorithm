@@ -17,6 +17,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY . /app/
 
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install ortools
 
 WORKDIR /app/restful_routing_project
 
