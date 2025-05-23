@@ -44,6 +44,8 @@ def run_layouting_algorithm(shipment_data, selected_container):
     inputs['solution'] = model.solution
     decoder = PlacementProcedure(inputs, model.solution)
     fitness = decoder.evaluate()
+    print("Tipe Truk: ", selected_container)
+    print("initial fitness: ", fitness)
 
     # Jika tidak cukup di satu container, coba container lebih besar
     if math.floor(fitness) > 1:
@@ -56,6 +58,8 @@ def run_layouting_algorithm(shipment_data, selected_container):
         inputs['solution'] = model.solution
         decoder = PlacementProcedure(inputs, model.solution)
         fitness = decoder.evaluate()
+        print("Tipe Truk: ", selected_container)
+        print("initial fitness (2): ", fitness)
 
     output_layout = []
     DOs_list = inputs['DOs_num']
