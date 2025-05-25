@@ -32,7 +32,7 @@ class Bin():
         self.dimensions = V
         self.EMSs = [[np.array((0,0,0)), np.array(V)]]
         self.load_items = []  # (min_corner, max_corner, DO_index)
-
+        
         if verbose:
             print('Init EMSs:', self.EMSs)
 
@@ -104,23 +104,13 @@ class PlacementProcedure():
         self.box_DO_map = inputs['box_DO_map']
         self.DO_count = inputs['DO_count']
         self.DOs_num = inputs['DOs_num']
-
-        # Simpan urutan DO asli dari inputs
         self.original_DO_order = inputs['DOs_num']
 
-        # # Urutkan BPS berdasarkan DO terlebih dahulu, baru random key
-        # indices = list(range(len(self.boxes)))
-        # indices.sort(key=lambda i: (self.box_DO_map[i], solution[i]))  # Prioritaskan DO sama
-        # self.BPS = np.array(indices)
-        # self.VBO = solution[len(self.boxes):]
-
-        # Urutkan BPS berdasarkan: 
-        # 1. Urutan DO asli (bukan berdasarkan volume)
-        # 2. Random key dari solution
+        # Urutkan berdasarkan: 1. Urutan DO asli 2. Random key
         indices = list(range(len(self.boxes)))
         indices.sort(key=lambda i: (
-            self.original_DO_order.index(self.DOs_num[self.box_DO_map[i]]),  # Urutan DO asli
-            solution[i]  # Random key
+            self.original_DO_order.index(self.DOs_num[self.box_DO_map[i]]),
+            solution[i]
         ))
         self.BPS = np.array(indices)
         self.VBO = solution[len(self.boxes):]
@@ -132,7 +122,7 @@ class PlacementProcedure():
         self.placement()
 
     def placement(self):
-        # Kelompokkan box per DO dan urutkan berdasarkan volume total (descending)
+        # Kelompokkan box per DO
         do_groups = {}
         for i in self.BPS:
             do = self.box_DO_map[i]
@@ -140,9 +130,7 @@ class PlacementProcedure():
                 do_groups[do] = []
             do_groups[do].append(i)
         
-        # Urutkan DO berdasarkan volume total (descending)
-        # sorted_DOs = sorted(do_groups.keys(), 
-        #                 key=lambda do: -sum(np.product(self.boxes[i]) for i in do_groups[do]))
+        # Urutkan DO berdasarkan urutan asli
         sorted_DOs = sorted(do_groups.keys(), 
                     key=lambda do: self.original_DO_order.index(self.DOs_num[do]))
         
@@ -154,77 +142,38 @@ class PlacementProcedure():
                 box = self.boxes[box_idx]
                 placed = False
                 
-                # Cari EMS di semua bin yang ada
+                # Coba tempatkan di bin yang sudah ada box dengan DO sama
                 for k in range(self.num_opend_bins):
-                    # Prioritaskan bin yang sudah ada box dari DO yang sama
                     if any(b[2] == do for b in self.Bins[k].load_items):
-                        EMS = self.find_ems_for_do_cluster(box, k, do)
+                        EMS = self.DFTRC_2(box, k, do)
                         if EMS:
                             BO = self.select_box_orientation(self.VBO[box_idx], box, EMS)
-                            self.Bins[k].update(self.orient(box, BO), EMS, current_DO=do)
+                            min_vol, min_dim = self.elimination_rule([self.boxes[i] for i in self.BPS[self.BPS > box_idx]])
+                            self.Bins[k].update(self.orient(box, BO), EMS, min_vol, min_dim, do)
                             placed = True
                             break
                 
+                # Jika belum terpasang, coba di bin lain
                 if not placed:
-                    # Coba di bin lain
                     for k in range(self.num_opend_bins):
-                        EMS = self.find_ems_for_do_cluster(box, k, do)
+                        EMS = self.DFTRC_2(box, k, do)
                         if EMS:
                             BO = self.select_box_orientation(self.VBO[box_idx], box, EMS)
-                            self.Bins[k].update(self.orient(box, BO), EMS, current_DO=do)
+                            min_vol, min_dim = self.elimination_rule([self.boxes[i] for i in self.BPS[self.BPS > box_idx]])
+                            self.Bins[k].update(self.orient(box, BO), EMS, min_vol, min_dim, do)
                             placed = True
                             break
                 
-                # Jika tidak muat, buka bin baru
+                # Jika masih belum terpasang, buka bin baru
                 if not placed:
                     self.num_opend_bins += 1
                     if self.num_opend_bins > len(self.Bins):
                         self.infisible = True
                         return
-                    EMS = self.Bins[-1].EMSs[0]
+                    EMS = self.Bins[self.num_opend_bins-1].EMSs[0]
                     BO = self.select_box_orientation(self.VBO[box_idx], box, EMS)
-                    self.Bins[-1].update(self.orient(box, BO), EMS, current_DO=do)
-                    
-    def find_ems_for_do_cluster(self, box, bin_idx, current_do):
-        best_ems = None
-        best_score = -1
-
-        for EMS in self.Bins[bin_idx].EMSs:
-            for rot in [1, 2, 3, 4, 5, 6]:
-                d, w, h = self.orient(box, rot)
-                if not self.fitin((d, w, h), EMS):
-                    continue
-
-                # # Hitung skor: kombinasi utilisasi ruang dan cluster DO
-                # used_vol = sum(np.prod(b[1]-b[0]) for b in self.Bins[bin_idx].load_items)
-                # total_vol = np.prod(self.Bins[bin_idx].dimensions)
-                # util_score = (used_vol + d*w*h) / total_vol  # Maksimalkan utilisasi
-
-                # # Bonus untuk EMS yang berisi DO sama
-                # do_match_bonus = 100 if any(b[2] == current_do for b in self.Bins[bin_idx].load_items) else 0
-
-                # score = util_score + do_match_bonus
-
-                # if score > best_score:
-                #     best_score = score
-                #     best_ems = EMS
-
-                # Hitung skor dengan prioritas DO sama tapi tidak eksklusif
-                used_vol = sum(np.prod(b[1]-b[0]) for b in self.Bins[bin_idx].load_items)
-                total_vol = np.prod(self.Bins[bin_idx].dimensions)
-                util_score = (used_vol + d*w*h) / total_vol
-
-                # Beri bonus sedang untuk DO sama, tapi tetap izinkan DO berbeda
-                do_match_score = 0.5 if any(b[2] == current_do for b in self.Bins[bin_idx].load_items) else 0
-                
-                # Prioritas utama ke utilisasi ruang
-                score = 0.7*util_score + 0.3*do_match_score
-
-                if score > best_score:
-                    best_score = score
-                    best_ems = EMS
-
-        return best_ems
+                    min_vol, min_dim = self.elimination_rule([self.boxes[i] for i in self.BPS[self.BPS > box_idx]])
+                    self.Bins[self.num_opend_bins-1].update(self.orient(box, BO), EMS, min_vol, min_dim, do)
 
     def DFTRC_2(self, box, k, current_DO):
         maxDist = -1
@@ -241,6 +190,7 @@ class PlacementProcedure():
                     ems_boxes = [b for b in self.Bins[k].load_items if self.is_inside(b[0], b[1], ems_min, ems_max)]
                     ems_DO_set = set([b[2] for b in ems_boxes])
 
+                    # Prioritaskan EMS dengan DO yang sama, tapi tidak menolak EMS lain
                     if len(ems_DO_set) > 0 and current_DO not in ems_DO_set:
                         continue
 
@@ -287,35 +237,6 @@ class PlacementProcedure():
                 min_vol = vol
         return min_vol, min_dim
 
-    # def evaluate(self):
-    #     if self.infisible:
-    #         return INFEASIBLE
-        
-    #     base_fitness = self.num_opend_bins
-        
-    #     # Jika container adalah CDE, pastikan hanya 1 container yang digunakan
-    #     container_volume = np.product(self.Bins[0].dimensions)
-    #     if container_volume >= 350*160*160:  # Volume CDE
-    #         base_fitness = 1 + (self.num_opend_bins - 1) * 0.1  # Pastikan fitness utama 1.x
-        
-    #     stability_penalty = 0.0
-    #     do_positions = {i: [] for i in range(self.DO_count)}
-        
-    #     for bin in self.Bins[:self.num_opend_bins]:
-    #         for box in bin.load_items:
-    #             min_corner, max_corner, box_DO = box
-    #             center = (min_corner + max_corner) / 2
-    #             do_positions[box_DO].append(center)
-        
-    #     for do_idx, centers in do_positions.items():
-    #         if len(centers) == 0:
-    #             continue
-    #         avg_center = np.mean(np.array(centers), axis=0)
-    #         height_center = avg_center[2]
-    #         stability_penalty += height_center / self.Bins[0].dimensions[2]
-        
-    #     return base_fitness + stability_penalty
-
     def evaluate(self):
         if self.infisible:
             return INFEASIBLE
@@ -323,9 +244,9 @@ class PlacementProcedure():
         container_volume = np.product(self.Bins[0].dimensions)
         is_cde = container_volume >= 350*160*160
         
-        # Beri penalty besar untuk multi-container di CDE
+        # Penalty sangat besar untuk multi-container di CDE
         if is_cde and self.num_opend_bins > 1:
-            return 1 + (self.num_opend_bins - 1) * 10  # Penalty sangat besar
+            return 1 + (self.num_opend_bins - 1) * 10
         
         base_fitness = self.num_opend_bins
         
