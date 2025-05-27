@@ -13,7 +13,7 @@ container_options = {
     "CDE": (350, 160, 160)
 }
 
-def run_layouting_algorithm(shipment_data, selected_container):
+def run_layouting_algorithm(shipment_data, selected_container, shipment_id):
     base_container = selected_container
     print("Running BRKGA algorithm...")
     print(shipment_data)
@@ -131,7 +131,8 @@ def run_layouting_algorithm(shipment_data, selected_container):
 
     return {
         "fitness": fitness,
-        "layout": output_layout,
         "base_container": base_container,
-        "selected_container": selected_container
+        "selected_container": selected_container,
+        "shipment_id": shipment_id,
+        "layout": output_layout,
     }

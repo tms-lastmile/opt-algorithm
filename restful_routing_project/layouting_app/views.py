@@ -9,7 +9,8 @@ def layouting_boxes(request):
         return Response({"error": "shipment_data is required"}, status=400)
 
     selected_container = request.data.get("container")
+    shipment_id = request.data.get("shipment_id")
 
-    result = run_layouting_algorithm(shipment_data, selected_container)
+    result = run_layouting_algorithm(shipment_data, selected_container, shipment_id)
 
     return Response(result)
