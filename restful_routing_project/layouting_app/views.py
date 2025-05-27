@@ -10,7 +10,8 @@ def layouting_boxes(request):
 
     selected_container = request.data.get("container")
     shipment_id = request.data.get("shipment_id")
+    shipment_num = request.data.get("shipment_num")
 
-    result = run_layouting_algorithm(shipment_data, selected_container, shipment_id)
+    result = run_layouting_algorithm(shipment_data, selected_container, shipment_id, shipment_num)
 
     return Response(result)

@@ -13,7 +13,7 @@ container_options = {
     "CDE": (350, 160, 160)
 }
 
-def run_layouting_algorithm(shipment_data, selected_container, shipment_id):
+def run_layouting_algorithm(shipment_data, selected_container, shipment_id, shipment_num):
     base_container = selected_container
     print("Running BRKGA algorithm...")
     print(shipment_data)
@@ -130,9 +130,10 @@ def run_layouting_algorithm(shipment_data, selected_container, shipment_id):
     output_layout.sort(key=lambda x: x["do_priority"])
 
     return {
+        "shipment_id": shipment_id,
+        "shipment_num": shipment_num,
         "fitness": fitness,
         "base_container": base_container,
         "selected_container": selected_container,
-        "shipment_id": shipment_id,
         "layout": output_layout,
     }
