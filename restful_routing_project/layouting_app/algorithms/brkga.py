@@ -18,12 +18,11 @@ def run_layouting_algorithm(shipment_data, selected_container, shipment_id, ship
     print("Running BRKGA algorithm...")
     print(shipment_data)
 
+    # Mulai menghitung waktu
+    start_time = time.time()
+
     boxes = []
     box_DO_map = []
-
-    # Urutkan DO secara descending (prioritaskan DO dengan box besar/lebih banyak)
-    # sorted_DOs = sorted(shipment_data.keys(), key=lambda x: -sum(d[0]*d[1]*d[2] for d in shipment_data[x].values()))
-    # sorted_DOs = sorted(shipment_data.keys(), reverse=True)
     sorted_DOs = list(shipment_data.keys())[::-1]
 
     print("Sorted DOs: ",sorted_DOs)
@@ -36,6 +35,7 @@ def run_layouting_algorithm(shipment_data, selected_container, shipment_id, ship
                 box_DO_map.append(do_idx)
 
     print("Boxes: ",boxes)
+    print("Length of boxes: ", len(boxes))
 
     inputs = {
         'v': boxes,
@@ -47,17 +47,19 @@ def run_layouting_algorithm(shipment_data, selected_container, shipment_id, ship
 
     # Step 1: Jalankan algoritma untuk container awal
     model = BRKGA(inputs, 
-             num_generations=20,  # Kurangi generasi
-             num_individuals=30,  # Kurangi populasi
+             num_generations=20,
+             num_individuals=30,
              num_elites=5, 
              num_mutants=5, 
-             eliteCProb=0.8,      # Tingkatkan probabilitas elite
+             eliteCProb=0.8,
              multiProcess=True
         )
     model.fit(patient=10, verbose=False)
     decoder = PlacementProcedure(inputs, model.solution)
     fitness = decoder.evaluate()
+    utilization = decoder.get_utilization()  # Dapatkan utilization
     print("Tipe Truk: ", selected_container, "Fitness:", fitness)
+    print("Utilization: {:.2f}%".format(utilization * 100))
 
     # Step 2: Jika BLIND_VAN dan fitness >= 2, switch ke CDE
     if selected_container == "BLIND_VAN" and math.floor(fitness) >= 2:
@@ -65,52 +67,43 @@ def run_layouting_algorithm(shipment_data, selected_container, shipment_id, ship
         selected_container = "CDE"
         inputs['V'] = [container_options[selected_container]]
         
-        # Untuk CDE, tingkatkan parameter untuk memastikan solusi optimal
         model = BRKGA(inputs, 
-                    num_generations=20,  # Kurangi generasi
-                    num_individuals=30,  # Kurangi populasi
+                    num_generations=20,
+                    num_individuals=30,
                     num_elites=5, 
                     num_mutants=5, 
-                    eliteCProb=0.8,      # Tingkatkan probabilitas elite
+                    eliteCProb=0.8,
                     multiProcess=True
              )
         model.fit(patient=15, verbose=False)
         decoder = PlacementProcedure(inputs, model.solution)
         fitness = decoder.evaluate()
+        utilization = decoder.get_utilization()  # Update utilization
         print("Tipe Truk: ", selected_container, "Fitness (2):", fitness)
+        print("Utilization: {:.2f}%".format(utilization * 100))
         
-        # Pastikan fitness CDE adalah 1.x (hanya butuh 1 container)
         if math.floor(fitness) > 1:
-            # Jika masih tidak muat, paksa dengan menambah bin
             inputs['V'] = [container_options[selected_container]] * math.ceil(fitness)
             model = BRKGA(inputs, 
-                    num_generations=20,  # Kurangi generasi
-                    num_individuals=30,  # Kurangi populasi
+                    num_generations=20,
+                    num_individuals=30,
                     num_elites=5, 
                     num_mutants=5, 
-                    eliteCProb=0.8,      # Tingkatkan probabilitas elite
+                    eliteCProb=0.8,
                     multiProcess=True
                     )
             model.fit(patient=10, verbose=False)
             decoder = PlacementProcedure(inputs, model.solution)
             fitness = decoder.evaluate()
+            utilization = decoder.get_utilization()  # Update utilization
             print("Tipe Truk: ", selected_container, "Fitness (3):", fitness)
+            print("Utilization: {:.2f}%".format(utilization * 100))
 
-        print("Tipe Truk: ", selected_container, "Fitness (4):", fitness)
+    # Hitung total waktu eksekusi
+    running_time = time.time() - start_time
+    print("Total running time: {:.2f} seconds".format(running_time))
 
-    # Step 3: Format output
-    # output_layout = []
-    # for i, box_data in enumerate(decoder.Bins[0].load_items):
-    #     min_corner, max_corner, do_index = box_data
-    #     do_num = inputs['DOs_num'][do_index]
-    #     output_layout.append({
-    #         "do_num": do_num,
-    #         "box_id": i + 1,
-    #         "do_index": int(do_index),
-    #         "min_corner": [float(coord) for coord in min_corner],
-    #         "max_corner": [float(coord) for coord in max_corner]
-    #     })
-
+    # Format output
     output_layout = []
     for bin in decoder.Bins[:decoder.num_opend_bins]:
         for i, box_data in enumerate(bin.load_items):
@@ -122,17 +115,17 @@ def run_layouting_algorithm(shipment_data, selected_container, shipment_id, ship
                 "do_index": int(do_index),
                 "min_corner": [float(coord) for coord in min_corner],
                 "max_corner": [float(coord) for coord in max_corner],
-                # Tambahkan field urutan untuk sorting
                 "do_priority": do_index
             })
 
-    # Urutkan output berdasarkan urutan DO asli
     output_layout.sort(key=lambda x: x["do_priority"])
 
     return {
         "shipment_id": shipment_id,
         "shipment_num": shipment_num,
         "fitness": fitness,
+        "utilization": utilization,  # Tambahkan utilization
+        "running_time": running_time,  # Tambahkan running time
         "base_container": base_container,
         "selected_container": selected_container,
         "layout": output_layout,

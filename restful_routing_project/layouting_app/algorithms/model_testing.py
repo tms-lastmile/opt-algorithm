@@ -30,11 +30,30 @@ def generateInputs(N, m, V):
 class Bin():
     def __init__(self, V, verbose=False):
         self.dimensions = V
+        self.max_height = V[2] / 2  # Tambahkan batas tinggi maksimal (setengah tinggi container)
         self.EMSs = [[np.array((0,0,0)), np.array(V)]]
         self.load_items = []  # (min_corner, max_corner, DO_index)
         
         if verbose:
             print('Init EMSs:', self.EMSs)
+
+    def calculate_usable_volume(self):
+        """Hitung volume yang bisa digunakan (dalam batas tinggi)"""
+        usable_height = self.max_height
+        return self.dimensions[0] * self.dimensions[1] * usable_height
+
+    def calculate_used_volume(self):
+        """Hitung volume yang sudah terisi (dalam batas tinggi)"""
+        used = 0
+        for item in self.load_items:
+            min_c, max_c = item[0], item[1]
+            if max_c[2] <= self.max_height:
+                used += np.prod(max_c - min_c)
+            elif min_c[2] < self.max_height:
+                # Hitung partial volume jika box melewati batas
+                adjusted_max = np.array([max_c[0], max_c[1], self.max_height])
+                used += np.prod(adjusted_max - min_c)
+        return used
 
     def __getitem__(self, index):
         return self.EMSs[index]
@@ -45,7 +64,18 @@ class Bin():
     def update(self, box, selected_EMS, min_vol=1, min_dim=1, current_DO=None, verbose=False):
         boxToPlace = np.array(box)
         selected_min = np.array(selected_EMS[0])
+        
+        # Hitung tinggi yang tersedia di EMS ini
+        available_height = min(selected_EMS[1][2], self.dimensions[2]) - selected_min[2]
+        
+        # Jika box lebih tinggi dari yang tersedia, potong box
+        if boxToPlace[2] > available_height:
+            if available_height < min_dim:  # Jika sisa tinggi terlalu kecil, skip
+                return False
+            boxToPlace[2] = available_height  # Potong box
+            
         ems = [selected_min, selected_min + boxToPlace]
+        
         self.load_items.append((ems[0], ems[1], current_DO))
 
         if verbose:
@@ -74,9 +104,32 @@ class Bin():
                         isValid = False
                     if np.product(new_box) < min_vol:
                         isValid = False
+                    # Tambahkan pengecekan tinggi maksimal untuk EMS baru
+                    if new_EMS[0][2] >= self.max_height:
+                        isValid = False
 
                     if isValid:
                         self.EMSs.append(new_EMS)
+        
+        return True  # Return True jika berhasil ditempatkan
+    
+    def calculate_usable_volume(self):
+        """Hitung volume yang bisa digunakan (dalam batas tinggi)"""
+        usable_height = self.max_height
+        return self.dimensions[0] * self.dimensions[1] * usable_height
+
+    def calculate_used_volume(self):
+        """Hitung volume yang sudah terisi (dalam batas tinggi)"""
+        used = 0
+        for item in self.load_items:
+            min_c, max_c = item[0], item[1]
+            if max_c[2] <= self.max_height:
+                used += np.prod(max_c - min_c)
+            elif min_c[2] < self.max_height:
+                # Hitung partial volume jika box melewati batas
+                adjusted_max = np.array([max_c[0], max_c[1], self.max_height])
+                used += np.prod(adjusted_max - min_c)
+        return used
 
     def overlapped(self, ems, EMS):
         return np.all(ems[1] > EMS[0]) and np.all(ems[0] < EMS[1])
@@ -106,6 +159,11 @@ class PlacementProcedure():
         self.DOs_num = inputs['DOs_num']
         self.original_DO_order = inputs['DOs_num']
 
+        # Tambahkan variabel untuk partisi DO
+        self.DO_partitions = {}  # {do_index: (start_x, end_x)}
+        self.current_partition_x = 0
+        self.partition_width = 0.2  # 20% lebar container untuk partisi awal
+
         # Urutkan berdasarkan: 1. Urutan DO asli 2. Random key
         indices = list(range(len(self.boxes)))
         indices.sort(key=lambda i: (
@@ -122,7 +180,7 @@ class PlacementProcedure():
         self.placement()
 
     def placement(self):
-        # Kelompokkan box per DO
+        # Kelompokkan box berdasarkan DO
         do_groups = {}
         for i in self.BPS:
             do = self.box_DO_map[i]
@@ -130,41 +188,57 @@ class PlacementProcedure():
                 do_groups[do] = []
             do_groups[do].append(i)
         
-        # Urutkan DO berdasarkan urutan asli
+        # Urutkan DO berdasarkan urutan pengiriman asli
         sorted_DOs = sorted(do_groups.keys(), 
-                    key=lambda do: self.original_DO_order.index(self.DOs_num[do]))
+                          key=lambda do: self.original_DO_order.index(self.DOs_num[do]))
         
+        # Hitung total volume per DO untuk menentukan alokasi partisi
+        total_volume = sum(np.product(b) for b in self.boxes)
+        do_volumes = {do: sum(np.product(self.boxes[i]) for i in do_groups[do]) 
+                      for do in do_groups.keys()}
+        
+        # Buat partisi untuk setiap DO berdasarkan proporsi volume
         for do in sorted_DOs:
-            # Urutkan box dalam DO berdasarkan volume (descending)
+            partition_ratio = do_volumes[do] / total_volume
+            self.DO_partitions[do] = (
+                self.current_partition_x,
+                self.current_partition_x + partition_ratio * self.Bins[0].dimensions[0]
+            )
+            self.current_partition_x += partition_ratio * self.Bins[0].dimensions[0]
+        
+        # Lakukan penempatan untuk setiap DO dalam partisinya
+        for do in sorted_DOs:
             do_boxes = sorted(do_groups[do], key=lambda i: -np.product(self.boxes[i]))
+            start_x, end_x = self.DO_partitions[do]
             
             for box_idx in do_boxes:
                 box = self.boxes[box_idx]
                 placed = False
                 
-                # Coba tempatkan di bin yang sudah ada box dengan DO sama
+                # Cari EMS dalam partisi DO ini
                 for k in range(self.num_opend_bins):
-                    if any(b[2] == do for b in self.Bins[k].load_items):
-                        EMS = self.DFTRC_2(box, k, do)
-                        if EMS:
-                            BO = self.select_box_orientation(self.VBO[box_idx], box, EMS)
-                            min_vol, min_dim = self.elimination_rule([self.boxes[i] for i in self.BPS[self.BPS > box_idx]])
-                            self.Bins[k].update(self.orient(box, BO), EMS, min_vol, min_dim, do)
+                    EMS = self.find_EMS_in_partition(box, k, do, start_x, end_x)
+                    if EMS:
+                        BO = self.select_box_orientation(self.VBO[box_idx], box, EMS)
+                        min_vol, min_dim = self.elimination_rule([self.boxes[i] for i in self.BPS[self.BPS > box_idx]])
+                        success = self.Bins[k].update(self.orient(box, BO), EMS, min_vol, min_dim, do)
+                        if success:
                             placed = True
                             break
                 
-                # Jika belum terpasang, coba di bin lain
+                # Jika tidak ditemukan dalam partisi, cari di area umum dengan prioritas DO
                 if not placed:
                     for k in range(self.num_opend_bins):
-                        EMS = self.DFTRC_2(box, k, do)
+                        EMS = self.DFTRC_2_with_priority(box, k, do)
                         if EMS:
                             BO = self.select_box_orientation(self.VBO[box_idx], box, EMS)
                             min_vol, min_dim = self.elimination_rule([self.boxes[i] for i in self.BPS[self.BPS > box_idx]])
-                            self.Bins[k].update(self.orient(box, BO), EMS, min_vol, min_dim, do)
-                            placed = True
-                            break
+                            success = self.Bins[k].update(self.orient(box, BO), EMS, min_vol, min_dim, do)
+                            if success:
+                                placed = True
+                                break
                 
-                # Jika masih belum terpasang, buka bin baru
+                # Jika masih belum ditempatkan, buka bin baru
                 if not placed:
                     self.num_opend_bins += 1
                     if self.num_opend_bins > len(self.Bins):
@@ -175,30 +249,65 @@ class PlacementProcedure():
                     min_vol, min_dim = self.elimination_rule([self.boxes[i] for i in self.BPS[self.BPS > box_idx]])
                     self.Bins[self.num_opend_bins-1].update(self.orient(box, BO), EMS, min_vol, min_dim, do)
 
-    def DFTRC_2(self, box, k, current_DO):
-        maxDist = -1
-        selectedEMS = None
-
-        for EMS in self.Bins[k].EMSs:
+    def find_EMS_in_partition(self, box, bin_idx, do, start_x, end_x):
+        """Cari EMS dalam partisi DO tertentu yang bisa menampung box"""
+        best_EMS = None
+        max_distance = -1
+        
+        for EMS in self.Bins[bin_idx].EMSs:
             ems_min, ems_max = EMS
-            for direction in [1,2,3,4,5,6]:
-                d, w, h = self.orient(box, direction)
-                if self.fitin((d,w,h), EMS):
-                    x, y, z = ems_min
-                    distance = (self.Bins[k].dimensions[0]-x-d)**2 + (self.Bins[k].dimensions[1]-y-w)**2 + (self.Bins[k].dimensions[2]-z-h)**2
+            
+            # Pastikan EMS berada dalam partisi DO ini
+            if ems_min[0] < start_x or ems_max[0] > end_x:
+                continue
+                
+            # Hitung jarak ke dinding belakang (DFTRC)
+            distance = (self.Bins[bin_idx].dimensions[0] - ems_min[0])**2
+            
+            # Prioritaskan EMS dengan DO yang sama
+            ems_boxes = [b for b in self.Bins[bin_idx].load_items 
+                         if self.is_inside(b[0], b[1], ems_min, ems_max)]
+            same_do = any(b[2] == do for b in ems_boxes)
+            
+            if same_do:
+                distance *= 2  # Beri bonus untuk EMS dengan DO sama
+                
+            if distance > max_distance:
+                for direction in [1,2,3,4,5,6]:
+                    if self.fitin(self.orient(box, direction), EMS):
+                        best_EMS = EMS
+                        max_distance = distance
+                        break
+                        
+        return best_EMS
 
-                    ems_boxes = [b for b in self.Bins[k].load_items if self.is_inside(b[0], b[1], ems_min, ems_max)]
-                    ems_DO_set = set([b[2] for b in ems_boxes])
-
-                    # Prioritaskan EMS dengan DO yang sama, tapi tidak menolak EMS lain
-                    if len(ems_DO_set) > 0 and current_DO not in ems_DO_set:
-                        continue
-
-                    if distance > maxDist:
-                        maxDist = distance
-                        selectedEMS = EMS
-
-        return selectedEMS
+    def DFTRC_2_with_priority(self, box, bin_idx, current_DO):
+        """DFTRC dengan prioritas untuk DO yang sama"""
+        best_EMS = None
+        max_distance = -1
+        
+        for EMS in self.Bins[bin_idx].EMSs:
+            ems_min, ems_max = EMS
+            
+            # Hitung jarak ke dinding belakang (DFTRC original)
+            distance = (self.Bins[bin_idx].dimensions[0] - ems_min[0])**2
+            
+            # Prioritaskan EMS dengan DO yang sama
+            ems_boxes = [b for b in self.Bins[bin_idx].load_items 
+                         if self.is_inside(b[0], b[1], ems_min, ems_max)]
+            same_do = any(b[2] == current_DO for b in ems_boxes)
+            
+            if same_do:
+                distance *= 2  # Beri bonus untuk EMS dengan DO sama
+                
+            if distance > max_distance:
+                for direction in [1,2,3,4,5,6]:
+                    if self.fitin(self.orient(box, direction), EMS):
+                        best_EMS = EMS
+                        max_distance = distance
+                        break
+                        
+        return best_EMS
 
     def is_inside(self, min1, max1, min2, max2):
         return all(min2[i] <= min1[i] and max1[i] <= max2[i] for i in range(3))
@@ -237,6 +346,40 @@ class PlacementProcedure():
                 min_vol = vol
         return min_vol, min_dim
 
+    # def evaluate(self):
+    #     if self.infisible:
+    #         return INFEASIBLE
+        
+    #     container_volume = np.product(self.Bins[0].dimensions)
+    #     is_cde = container_volume >= 350*160*160
+        
+    #     # Penalty sangat besar untuk multi-container di CDE
+    #     if is_cde and self.num_opend_bins > 1:
+    #         return 1 + (self.num_opend_bins - 1) * 10
+        
+    #     base_fitness = self.num_opend_bins
+        
+    #     # Hitung utilisasi ruang
+    #     total_used = sum(np.prod(b[1]-b[0]) for bin in self.Bins[:self.num_opend_bins] for b in bin.load_items)
+    #     total_available = sum(np.prod(bin.dimensions) for bin in self.Bins[:self.num_opend_bins])
+    #     utilization = total_used / total_available
+        
+    #     # Fitness utama berdasarkan jumlah container + (1 - utilisasi)
+    #     return base_fitness + (1 - utilization)
+    # def get_utilization(self):
+    #     total_used = sum(np.prod(b[1]-b[0]) for bin in self.Bins[:self.num_opend_bins] for b in bin.load_items)
+    #     total_available = sum(np.prod(bin.dimensions) for bin in self.Bins[:self.num_opend_bins])
+    #     return total_used / total_available if total_available > 0 else 0
+
+    def get_utilization(self):
+        """Hitung utilization berdasarkan volume yang bisa digunakan"""
+        total_used = 0
+        total_usable = 0
+        for bin in self.Bins[:self.num_opend_bins]:
+            total_used += bin.calculate_used_volume()
+            total_usable += bin.calculate_usable_volume()
+        return total_used / total_usable if total_usable > 0 else 0
+
     def evaluate(self):
         if self.infisible:
             return INFEASIBLE
@@ -244,19 +387,19 @@ class PlacementProcedure():
         container_volume = np.product(self.Bins[0].dimensions)
         is_cde = container_volume >= 350*160*160
         
-        # Penalty sangat besar untuk multi-container di CDE
-        if is_cde and self.num_opend_bins > 1:
-            return 1 + (self.num_opend_bins - 1) * 10
+        # Hitung utilization yang benar
+        utilization = self.get_utilization()
         
+        # Fitness utama hanya berdasarkan jumlah container
         base_fitness = self.num_opend_bins
         
-        # Hitung utilisasi ruang
-        total_used = sum(np.prod(b[1]-b[0]) for bin in self.Bins[:self.num_opend_bins] for b in bin.load_items)
-        total_available = sum(np.prod(bin.dimensions) for bin in self.Bins[:self.num_opend_bins])
-        utilization = total_used / total_available
-        
-        # Fitness utama berdasarkan jumlah container + (1 - utilisasi)
-        return base_fitness + (1 - utilization)
+        # Berikan penalty hanya jika CDE dan multi-container
+        if is_cde and self.num_opend_bins > 1:
+            return base_fitness * 10  # Penalty besar untuk multi-container CDE
+            
+        return base_fitness + (1 - utilization)  # Beri bobot lebih kecil untuk utilizatio
+    
+    
 
 class BRKGA():
     def __init__(self, inputs, num_generations=200, num_individuals=120, num_elites=12, num_mutants=18, eliteCProb=0.7, multiProcess=False):
@@ -300,7 +443,11 @@ class BRKGA():
         return np.random.uniform(0, 1, size=(self.num_mutants, self.num_gene))
 
     def fit(self, patient=4, verbose=False):
-        population = np.random.uniform(0,1,(self.num_individuals, self.num_gene))
+        # Adaptasi parameter berdasarkan jumlah box
+        adaptive_individuals = min(30, max(10, int(self.N/3)))  # 10-30 individu
+        adaptive_generations = min(30, max(10, int(self.N/5)))  # 10-30 generasi
+        
+        population = np.random.uniform(0,1,(adaptive_individuals, self.num_gene))
         fitness_list = self.cal_fitness(population)
 
         best_fitness = np.min(fitness_list)
